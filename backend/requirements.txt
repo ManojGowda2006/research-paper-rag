@@ -7,5 +7,5 @@ langchain-text-splitters==0.2.4
 chromadb==0.5.5
 posthog<3.0.0  # pin: chromadb 0.5.5's telemetry calls posthog.capture() with a signature removed in posthog>=3
 google-generativeai==0.8.1
-groq==0.11.0
+groq>=1.0.0  # 0.11.0's bundled httpx client passes a `proxies` kwarg removed in httpx>=0.28
 python-dotenv==1.0.1

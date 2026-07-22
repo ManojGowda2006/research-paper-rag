@@ -4,9 +4,10 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, UploadFile
 
 from config import settings
-from embeddings import embed_documents
+from embeddings import embed_documents, embed_query
 from pdf_processor import process_pdf
-from schemas import DocumentInfo, UploadResponse
+from rag import generate_answer
+from schemas import AskRequest, AskResponse, DocumentInfo, SourceChunk, UploadResponse
 from vector_store import VectorStore
 
 app = FastAPI(title="Research Paper RAG")
@@ -50,3 +51,24 @@ async def upload_pdf(file: UploadFile):
         num_chunks=len(chunks),
         num_pages=num_pages,
     )
+
+
+@app.post("/ask", response_model=AskResponse)
+async def ask_question(request: AskRequest):
+    if not vector_store.document_exists(request.doc_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    query_embedding = embed_query(request.question)
+    retrieved = vector_store.query(
+        request.doc_id, query_embedding, settings.retrieval_k
+    )
+    if not retrieved:
+        raise HTTPException(
+            status_code=404, detail="No indexed content for this document"
+        )
+
+    answer = generate_answer(request.question, retrieved)
+    sources = [
+        SourceChunk(page_number=r["page_number"], text=r["text"]) for r in retrieved
+    ]
+    return AskResponse(answer=answer, sources=sources)
