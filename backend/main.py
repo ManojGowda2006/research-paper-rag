@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from embeddings import embed_documents, embed_query
@@ -72,3 +73,8 @@ async def ask_question(request: AskRequest):
         SourceChunk(page_number=r["page_number"], text=r["text"]) for r in retrieved
     ]
     return AskResponse(answer=answer, sources=sources)
+
+
+# Mounted last so it doesn't shadow the API routes above.
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

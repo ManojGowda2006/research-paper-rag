@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Research Paper Q&amp;A</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div class="max-w-3xl mx-auto px-4 py-10">
+    <header class="mb-8">
+      <h1 class="text-2xl font-semibold">Research Paper Q&amp;A</h1>
+      <p class="text-slate-500 text-sm mt-1">Upload a PDF, then ask questions grounded in its content.</p>
+    </header>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-5 mb-6">
+      <h2 class="font-medium mb-3">1. Upload a paper</h2>
+      <div class="flex items-center gap-3">
+        <input id="file-input" type="file" accept="application/pdf"
+          class="text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white file:text-sm hover:file:bg-slate-700 cursor-pointer" />
+        <button id="upload-btn"
+          class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-500">
+          Upload
+        </button>
+      </div>
+      <p id="upload-status" class="text-sm mt-3 text-slate-500"></p>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-5 mb-6">
+      <h2 class="font-medium mb-3">2. Choose a document</h2>
+      <select id="doc-select" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+        <option value="">No documents uploaded yet</option>
+      </select>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="font-medium mb-3">3. Ask a question</h2>
+      <div class="flex gap-3">
+        <input id="question-input" type="text" placeholder="e.g. What method does this paper propose?"
+          class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+          disabled />
+        <button id="ask-btn"
+          class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-700"
+          disabled>
+          Ask
+        </button>
+      </div>
+
+      <div id="qa-log" class="mt-5 space-y-4"></div>
+    </section>
+  </div>
+
+<script>
+const fileInput = document.getElementById('file-input');
+const uploadBtn = document.getElementById('upload-btn');
+const uploadStatus = document.getElementById('upload-status');
+const docSelect = document.getElementById('doc-select');
+const questionInput = document.getElementById('question-input');
+const askBtn = document.getElementById('ask-btn');
+const qaLog = document.getElementById('qa-log');
+
+function setDocControlsEnabled(enabled) {
+  questionInput.disabled = !enabled;
+  askBtn.disabled = !enabled;
+}
+
+async function refreshDocuments(selectDocId) {
+  const res = await fetch('/documents');
+  const docs = await res.json();
+  docSelect.innerHTML = '';
+
+  if (docs.length === 0) {
+    docSelect.appendChild(new Option('No documents uploaded yet', ''));
+    setDocControlsEnabled(false);
+    return;
+  }
+
+  for (const doc of docs) {
+    const label = `${doc.filename} (${doc.num_chunks} chunks)`;
+    docSelect.appendChild(new Option(label, doc.doc_id));
+  }
+  if (selectDocId) docSelect.value = selectDocId;
+  setDocControlsEnabled(true);
+}
+
+uploadBtn.addEventListener('click', async () => {
+  const file = fileInput.files[0];
+  if (!file) {
+    uploadStatus.textContent = 'Choose a PDF first.';
+    return;
+  }
+
+  uploadBtn.disabled = true;
+  uploadStatus.textContent = 'Uploading and indexing...';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (!res.ok) {
+      uploadStatus.textContent = `Error: ${data.detail || 'upload failed'}`;
+      return;
+    }
+
+    uploadStatus.textContent = `Indexed "${data.filename}" — ${data.num_chunks} chunks across ${data.num_pages} pages.`;
+    await refreshDocuments(data.doc_id);
+    fileInput.value = '';
+  } catch (err) {
+    uploadStatus.textContent = `Error: ${err.message}`;
+  } finally {
+    uploadBtn.disabled = false;
+  }
+});
+
+function appendQA(question, answerHtml) {
+  const block = document.createElement('div');
+  block.className = 'border-t border-slate-100 pt-4 first:border-t-0 first:pt-0';
+  block.innerHTML = `
+    <p class="text-sm font-medium text-slate-800">Q: ${question}</p>
+    <div class="text-sm text-slate-700 mt-1 whitespace-pre-wrap">${answerHtml}</div>
+  `;
+  qaLog.prepend(block);
+}
+
+function sourcesHtml(sources) {
+  if (!sources || sources.length === 0) return '';
+  const chips = sources
+    .map(s => `<span class="inline-block bg-slate-100 text-slate-600 text-xs rounded-full px-2 py-0.5 mr-1 mt-2">p.${s.page_number}</span>`)
+    .join('');
+  return `<div>${chips}</div>`;
+}
+
+askBtn.addEventListener('click', async () => {
+  const docId = docSelect.value;
+  const question = questionInput.value.trim();
+  if (!docId || !question) return;
+
+  askBtn.disabled = true;
+  appendQA(question, '<span class="text-slate-400">Thinking…</span>');
+  const placeholder = qaLog.firstChild;
+
+  try {
+    const res = await fetch('/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc_id: docId, question }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      placeholder.querySelector('div').innerHTML = `<span class="text-red-600">${data.detail || 'Something went wrong'}</span>`;
+      return;
+    }
+
+    placeholder.querySelector('div').innerHTML = `${data.answer}${sourcesHtml(data.sources)}`;
+    questionInput.value = '';
+  } catch (err) {
+    placeholder.querySelector('div').innerHTML = `<span class="text-red-600">${err.message}</span>`;
+  } finally {
+    askBtn.disabled = false;
+  }
+});
+
+questionInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') askBtn.click();
+});
+
+refreshDocuments();
+</script>
+</body>
+</html>
