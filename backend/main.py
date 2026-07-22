@@ -43,7 +43,11 @@ async def upload_pdf(file: UploadFile):
     finally:
         dest_path.unlink(missing_ok=True)
 
-    embeddings = embed_documents([c.text for c in chunks])
+    try:
+        embeddings = embed_documents([c.text for c in chunks])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Embedding request failed: {e}")
+
     vector_store.add_chunks(doc_id, file.filename, chunks, embeddings)
 
     return UploadResponse(
@@ -56,10 +60,17 @@ async def upload_pdf(file: UploadFile):
 
 @app.post("/ask", response_model=AskResponse)
 async def ask_question(request: AskRequest):
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+
     if not vector_store.document_exists(request.doc_id):
         raise HTTPException(status_code=404, detail="Document not found")
 
-    query_embedding = embed_query(request.question)
+    try:
+        query_embedding = embed_query(request.question)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Embedding request failed: {e}")
+
     retrieved = vector_store.query(
         request.doc_id, query_embedding, settings.retrieval_k
     )
@@ -68,7 +79,10 @@ async def ask_question(request: AskRequest):
             status_code=404, detail="No indexed content for this document"
         )
 
-    answer = generate_answer(request.question, retrieved)
+    try:
+        answer = generate_answer(request.question, retrieved)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Answer generation failed: {e}")
     sources = [
         SourceChunk(page_number=r["page_number"], text=r["text"]) for r in retrieved
     ]

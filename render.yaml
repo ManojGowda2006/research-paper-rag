@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: research-paper-rag
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GEMINI_EMBEDDING_MODEL
+        value: models/text-embedding-004
+      - key: CHROMA_PERSIST_DIR
+        value: data/chroma
+      - key: UPLOAD_DIR
+        value: uploads
